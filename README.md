@@ -51,6 +51,23 @@ Aby przenieść przepisy z Maca na iPhone (lub zrobić backup):
 
 Import **dodaje** dane, nie kasuje istniejących.
 
+## Udostępnianie pojedynczych przepisów (np. znajomemu)
+
+Znajomy musi mieć tę samą aplikację (z tego samego adresu).
+
+**Wysyłający:** otwórz przepis → **Udostępnij → 🔗 Wyślij jako link** → np. przez
+Wiadomości/WhatsApp. Link niesie w sobie cały przepis (składniki, kroki, tagi,
+wartości odżywcze) — **bez zdjęcia**, żeby był krótki.
+
+**Odbierający — WAŻNE na iPhonie:** nie klikaj linku (otworzy się w Safari, który
+ma osobny magazyn niż zainstalowana apka). Zamiast tego:
+1. **Przytrzymaj link → Kopiuj**.
+2. Otwórz zainstalowane **Przepisy** (z ekranu początkowego).
+3. **Ustawienia → Odbierz udostępniony przepis → 📋 Wklej ze schowka**.
+
+Przepis dostanie nowy identyfikator (nie nadpisze Twoich). Na Androidzie/komputerze
+kliknięcie linku od razu otwiera apkę i proponuje import — bez kopiowania.
+
 ## Funkcje
 
 - **Przepisy:** nazwa, opis, zdjęcie, składniki (ilość + jednostka + uwagi), kroki,
