@@ -400,7 +400,7 @@ async function handleDetailAction(action, id, r) {
   else if (action === 'serv-plus') { state.detailServings = Math.min(100, state.detailServings + 1); render(); }
   else if (action === 'edit') { openRecipeEditor(r.id); }
   else if (action === 'cook') { openCooking(r, state.detailServings); }
-  else if (action === 'share') { shareRecipe(r, state.detailServings); }
+  else if (action === 'share') { openShareSheet(r, state.detailServings); }
   else if (action === 'to-shopping') { await addRecipeToShopping(r, state.detailServings); toast('Dodano do listy zakupów'); }
   else if (action === 'delete') {
     if (confirm('Usunąć ten przepis?')) { await dbDel('recipes', r.id); state.detailId = null; await loadAll(); render(); }
@@ -833,6 +833,13 @@ function renderSettings(view) {
       <label class="btn block">↥ Importuj z pliku<input type="file" accept=".json,application/json" id="importFile" hidden></label>
     </div>
     <div class="section">
+      <h3>🔗 Odbierz udostępniony przepis</h3>
+      <p class="muted" style="margin-bottom:10px">Znajomy przysłał link lub kod? Skopiuj go, a potem:</p>
+      <button class="btn primary block" data-action="paste-import" style="margin-bottom:10px">📋 Wklej ze schowka</button>
+      <textarea class="input" id="importCode" rows="2" placeholder="…albo wklej tutaj link lub kod"></textarea>
+      <button class="btn block" data-action="code-import" style="margin-top:8px">Importuj z pola</button>
+    </div>
+    <div class="section">
       <h3>📦 Twoje dane</h3>
       <div class="row" style="border:none;padding:6px 0"><div class="grow">Przepisy</div><b>${state.recipes.length}</b></div>
       <div class="row" style="border:none;padding:6px 0"><div class="grow">Ulubione składniki</div><b>${state.pantry.length}</b></div>
@@ -846,6 +853,18 @@ function renderSettings(view) {
   view.querySelector('#importFile').addEventListener('change', importData);
   const ib = view.querySelector('[data-action="install"]');
   if (ib) ib.addEventListener('click', doInstall);
+  const pi = view.querySelector('[data-action="paste-import"]');
+  if (pi) pi.addEventListener('click', async () => {
+    try {
+      const t = await navigator.clipboard.readText();
+      if (!t) { alert('Schowek jest pusty. Wklej link/kod w pole poniżej.'); return; }
+      await importFromString(t);
+    } catch (e) {
+      alert('Nie udało się odczytać schowka. Wklej link/kod w pole poniżej i naciśnij „Importuj z pola".');
+    }
+  });
+  const ci = view.querySelector('[data-action="code-import"]');
+  if (ci) ci.addEventListener('click', () => importFromString(view.querySelector('#importCode').value));
 }
 
 function exportData() {
@@ -967,6 +986,101 @@ async function shareRecipe(r, servings) {
   catch (e) { alert(text); }
 }
 
+/* ---- Udostępnianie jako link + odbieranie (import) ---- */
+
+function b64urlFromBytes(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function bytesFromB64url(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+async function encodePayload(obj) {
+  const json = JSON.stringify(obj);
+  if (window.CompressionStream) {
+    const cs = new CompressionStream('gzip');
+    const buf = await new Response(new Blob([json]).stream().pipeThrough(cs)).arrayBuffer();
+    return 'g' + b64urlFromBytes(new Uint8Array(buf));
+  }
+  return 'p' + b64urlFromBytes(new TextEncoder().encode(json));
+}
+async function decodePayload(code) {
+  const flag = code[0], data = code.slice(1);
+  if (flag === 'g' && window.DecompressionStream) {
+    const ds = new DecompressionStream('gzip');
+    return JSON.parse(await new Response(new Blob([bytesFromB64url(data)]).stream().pipeThrough(ds)).text());
+  }
+  if (flag === 'p') return JSON.parse(new TextDecoder().decode(bytesFromB64url(data)));
+  return JSON.parse(new TextDecoder().decode(bytesFromB64url(code)));
+}
+
+async function shareRecipeData(r) {
+  const clean = Object.assign({}, r);
+  delete clean.image; // bez zdjęcia — żeby link/kod był krótki
+  const code = await encodePayload({ v: 1, recipes: [clean] });
+  const url = location.origin + location.pathname + '#import=' + code;
+  const text = `Przepis „${r.name}" z aplikacji Przepisy. Skopiuj ten link i w aplikacji użyj: Ustawienia → „Wklej ze schowka".`;
+  if (navigator.share) { try { await navigator.share({ title: r.name, text, url }); return; } catch (e) { return; } }
+  try { await navigator.clipboard.writeText(url); toast('Skopiowano link'); } catch (e) { prompt('Skopiuj link:', url); }
+}
+
+function openShareSheet(r, servings) {
+  const body = `
+    <button class="btn primary block" data-s="link" style="margin-bottom:10px">🔗 Wyślij jako link (znajomy zaimportuje do apki)</button>
+    <button class="btn block" data-s="text">✍️ Wyślij jako zwykły tekst (do przeczytania)</button>
+    <p class="muted" style="margin-top:12px">Link przenosi przepis (składniki, kroki, tagi, wartości odżywcze) — bez zdjęcia. Odbiorca: skopiuj link, otwórz swoją apkę → „Ustawienia → Wklej ze schowka".</p>`;
+  openSheet('Udostępnij przepis', body, [{ label: 'Zamknij', cls: 'ghost', act: () => closeSheet() }], (root) => {
+    root.querySelector('[data-s="link"]').addEventListener('click', () => { closeSheet(); shareRecipeData(r); });
+    root.querySelector('[data-s="text"]').addEventListener('click', () => { closeSheet(); shareRecipe(r, servings); });
+  });
+}
+
+function extractPayload(str) {
+  str = (str || '').trim();
+  const m = str.match(/[#?]import=([^&\s]+)/);
+  if (m) return decodeURIComponent(m[1]);
+  if (/^[A-Za-z0-9_-]{8,}$/.test(str)) return str;
+  return null;
+}
+async function importRecipesData(data) {
+  const recipes = (data && data.recipes) || [];
+  if (!recipes.length) return 0;
+  for (const r of recipes) { r.id = uid(); r.createdAt = r.createdAt || new Date().toISOString(); await dbPut('recipes', r); }
+  if (data.pantry) {
+    const names = new Set(state.pantry.map((p) => p.name.toLowerCase()));
+    for (const p of data.pantry) { if (names.has((p.name || '').toLowerCase())) continue; p.id = uid(); await dbPut('pantry', p); }
+  }
+  await loadAll(); render();
+  return recipes.length;
+}
+async function importFromString(str) {
+  const code = extractPayload(str);
+  if (!code) { alert('Nie rozpoznano linku ani kodu przepisu.'); return; }
+  let data;
+  try { data = await decodePayload(code); } catch (e) { alert('Nie udało się odczytać danych: ' + e.message); return; }
+  const n = await importRecipesData(data);
+  if (n) toast('Dodano ' + n + ' przepis(ów)'); else alert('Brak przepisów w danych.');
+}
+async function maybeImportFromURL() {
+  const m = (location.hash + ' ' + location.search).match(/[#?]import=([^&\s]+)/);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname);
+  let data;
+  try { data = await decodePayload(decodeURIComponent(m[1])); } catch (e) { return; }
+  const recipes = (data && data.recipes) || [];
+  if (!recipes.length) return;
+  if (confirm('Dodać do Twoich przepisów: ' + recipes.map((r) => r.name).join(', ') + '?')) {
+    const n = await importRecipesData(data);
+    if (n) toast('Dodano ' + n + ' przepis(ów)');
+  }
+}
+
 /* ================= Arkusze (modale) ================= */
 
 function openSheet(title, bodyHtml, buttons, onMount) {
@@ -1063,6 +1177,7 @@ async function init() {
   window.addEventListener('appinstalled', () => { deferredPrompt = null; hideInstallBanner(); });
 
   render();
+  await maybeImportFromURL();
   showInstallBanner();
 
   if ('serviceWorker' in navigator) {
