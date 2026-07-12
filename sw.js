@@ -1,4 +1,4 @@
-const CACHE = 'przepisy-v4';
+const CACHE = 'przepisy-v5';
 const ASSETS = [
   './',
   './index.html',
